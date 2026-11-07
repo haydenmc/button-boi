@@ -164,6 +164,8 @@ async function refreshInfo() {
     proto: v.getUint8(0), timeValid: !!(v.getUint8(1) & 1), session: v.getUint16(2, true),
     deviceTime: Number(v.getBigUint64(4, true)), firstSeq: v.getUint32(12, true),
     lastSeq: v.getUint32(16, true), count: v.getUint32(20, true), capacity: v.getUint32(24, true),
+    batteryMv: v.byteLength >= 31 ? v.getUint16(28, true) : 0,
+    usbPower: v.byteLength >= 31 ? !!(v.getUint8(30) & 1) : false,
   };
   const dl = $("info");
   dl.replaceChildren();
@@ -173,7 +175,31 @@ async function refreshInfo() {
   add("Device clock", info.timeValid ? new Date(info.deviceTime).toLocaleString() : "not set");
   add("Session", info.session);
   add("Records", `${info.count} of ${info.capacity} (seq ${info.firstSeq || "–"}…${info.lastSeq || "–"})`);
+  add("Battery", batteryText(info));
   dl.hidden = false;
+}
+
+// Rough resting-voltage → charge curve for a 1-cell LiPo. Approximate: it
+// varies with cell, temperature and load (the radio is off when sampled).
+const LIPO_CURVE = [[4200, 100], [4100, 90], [4000, 80], [3920, 70], [3860, 60], [3820, 50],
+                    [3790, 40], [3750, 30], [3700, 20], [3650, 10], [3500, 5], [3300, 0]];
+function lipoPercent(mv) {
+  if (mv >= LIPO_CURVE[0][0]) return 100;
+  for (let i = 1; i < LIPO_CURVE.length; i++) {
+    const [v1, p1] = LIPO_CURVE[i - 1], [v2, p2] = LIPO_CURVE[i];
+    if (mv >= v2) return Math.round(p2 + (p1 - p2) * (mv - v2) / (v1 - v2));
+  }
+  return 0;
+}
+
+function batteryText(i) {
+  if (!i.batteryMv) return i.usbPower ? "USB power (battery not measured)" : "not measured";
+  const volts = `${(i.batteryMv / 1000).toFixed(2)} V`;
+  // On USB the charger holds VBAT near 4.2 V (or it floats with no battery
+  // fitted), so the reading says nothing about charge level.
+  if (i.usbPower) return `USB power (${volts} at charger)`;
+  const pct = lipoPercent(i.batteryMv);
+  return `${volts} (~${pct}%)${pct <= 15 ? " – charge soon" : ""}`;
 }
 
 function dump() {

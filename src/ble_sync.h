@@ -5,7 +5,8 @@
 //   Info    6b1f0002-…  read     u8 proto=1, u8 flags (bit0 = time valid),
 //                                u16 session, u64 device_time_ms,
 //                                u32 first_seq, u32 last_seq, u32 count,
-//                                u32 capacity                    (28 bytes)
+//                                u32 capacity, u16 battery_mv (0 = unknown),
+//                                u8 power_flags (bit0 = USB power)  (31 bytes)
 //   Time    6b1f0003-…  read     u64 device_time_ms, u8 valid
 //                       write    u64 epoch_ms → sets clock, logs TIME_SYNC
 //   Control 6b1f0004-…  write    0x01 u32 from_seq  → stream records ≥ from_seq

@@ -69,6 +69,9 @@ menuconfig. To keep changes in version control, add the `CONFIG_BB_*` lines to
 | `BB_LONG_PRESS_MS` | 3000 | Hold time to enter sync mode |
 | `BB_SYNC_WINDOW_S` | 60 | Advertising window |
 | `BB_DEVICE_NAME` | `button-boi` | The last 2 bytes of the BT address are appended |
+| `BB_BATTERY_SENSE` | y | Report battery voltage in the sync page |
+| `BB_VBAT_GPIO`, `BB_VBAT_R_TOP_KOHM`, `BB_VBAT_R_BOTTOM_KOHM` | 10, 442, 160 | TinyS3 VBAT divider |
+| `BB_VBUS_GPIO` | 33 | USB-power sense (−1 = none) |
 | `BB_DEBUG_NO_SLEEP` | n | Stays awake so the serial console keeps working |
 
 ## How it works
@@ -104,6 +107,15 @@ the old and new clock values. The web page uses it to:
 Records from a session that never got a sync, for example because the battery
 died first, can only be shown as "+N s after power-on".
 
+**Battery.** Each time sync mode starts, before the radio comes on, the
+firmware averages 16 ADC samples of the TinyS3's VBAT divider (442 k / 160 k
+on GPIO10). The sync page shows the voltage and an approximate LiPo charge
+percentage. When USB power is detected (GPIO33), the page says so instead,
+because the charger holds VBAT near 4.2 V. The divider is fixed hardware and
+draws about 7 µA all the time. The red power LED and the orange charge LED are
+both fed from USB, so on battery they stay dark. The charge LED can also be
+disabled permanently by cutting solder jumper A3.
+
 **Power.** A press wakes the chip, writes 16 bytes and flashes the LED. Expected
 awake time is about 200–300 ms (an estimate, not yet measured). The WS2812's LDO is switched off and the pin is held
 low through sleep. During sync mode the radio advertises every 100–200 ms. The
@@ -116,7 +128,7 @@ little-endian.
 
 | Char | UUID | Ops | Payload |
 |---|---|---|---|
-| Info | `6b1f0002-…` | read | `u8 proto=1, u8 flags(bit0=time valid), u16 session, u64 device_ms, u32 first_seq, u32 last_seq, u32 count, u32 capacity` |
+| Info | `6b1f0002-…` | read | `u8 proto=1, u8 flags(bit0=time valid), u16 session, u64 device_ms, u32 first_seq, u32 last_seq, u32 count, u32 capacity, u16 battery_mv(0=unknown), u8 power_flags(bit0=USB)` |
 | Time | `6b1f0003-…` | read / write | read: `u64 device_ms, u8 valid` · write: `u64 epoch_ms` |
 | Control | `6b1f0004-…` | write | `01 <u32 from_seq>` = dump · `02 "WIPE"` = erase |
 | Data | `6b1f0005-…` | notify | N × 16-byte records, then `FF <u32 count>` |
@@ -141,7 +153,9 @@ You can also use a generic BLE app such as nRF Connect for poking around.
   erase the log. Pairing/bonding is the obvious next step.
 - A held or stuck button doesn't drain the battery: the device re-checks it
   every 30 s on a timer instead of waking continuously.
-- Not done yet: battery voltage reporting (TinyS3 VBAT sense is GPIO10), light
-  sleep during sync, OTA updates.
+- The battery reading is only as accurate as the ADC calibration and divider
+  tolerance. Expect tens of mV of error, and adjust the resistor values in
+  menuconfig if a multimeter disagrees.
+- Not done yet: light sleep during sync, OTA updates.
 - **Not measured yet:** sleep current and energy per press. Measure them on
   battery with a power profiler and record them here.

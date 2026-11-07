@@ -1002,6 +1002,21 @@ CONFIG_BB_WS2812_BRIGHTNESS=40
 # end of LED
 
 #
+# Battery
+#
+# default:
+CONFIG_BB_BATTERY_SENSE=y
+# default:
+CONFIG_BB_VBAT_GPIO=10
+# default:
+CONFIG_BB_VBAT_R_TOP_KOHM=442
+# default:
+CONFIG_BB_VBAT_R_BOTTOM_KOHM=160
+# default:
+CONFIG_BB_VBUS_GPIO=33
+# end of Battery
+
+#
 # BLE sync
 #
 # default:

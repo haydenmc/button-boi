@@ -7,4 +7,5 @@ idf_component_register(
         button.c
         led.c
         ble_sync.c
+        battery.c
     INCLUDE_DIRS ".")

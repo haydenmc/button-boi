@@ -84,6 +84,39 @@ menu "button-boi"
             default 40
     endmenu
 
+    menu "Battery"
+        config BB_BATTERY_SENSE
+            bool "Report battery voltage over BLE"
+            default y
+
+        config BB_VBAT_GPIO
+            int "Battery divider ADC GPIO"
+            depends on BB_BATTERY_SENSE
+            range 1 20
+            default 10
+            help
+                ADC1-capable GPIO (1-10 on ESP32-S3) at the midpoint of a
+                VBAT-to-GND divider. TinyS3: GPIO10.
+
+        config BB_VBAT_R_TOP_KOHM
+            int "Divider top resistor (VBAT side), kOhm"
+            depends on BB_BATTERY_SENSE
+            default 442
+
+        config BB_VBAT_R_BOTTOM_KOHM
+            int "Divider bottom resistor (GND side), kOhm"
+            depends on BB_BATTERY_SENSE
+            default 160
+
+        config BB_VBUS_GPIO
+            int "USB-power sense GPIO (-1 = none)"
+            depends on BB_BATTERY_SENSE
+            range -1 48
+            default 33
+            help
+                Reads high when USB power is present. TinyS3: GPIO33.
+    endmenu
+
     menu "BLE sync"
         config BB_DEVICE_NAME
             string "BLE device name prefix"

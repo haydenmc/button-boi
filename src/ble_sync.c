@@ -15,6 +15,7 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
+#include "battery.h"
 #include "event_log.h"
 #include "timekeep.h"
 
@@ -49,6 +50,7 @@ static volatile bool s_connected;
 static volatile bool s_subscribed;
 static volatile uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
 static volatile TaskHandle_t s_dump_task;
+static uint16_t s_battery_mv; // sampled once per sync window, before the radio starts
 
 typedef struct __attribute__((packed)) {
     uint8_t proto;
@@ -59,6 +61,8 @@ typedef struct __attribute__((packed)) {
     uint32_t last_seq;
     uint32_t count;
     uint32_t capacity;
+    uint16_t battery_mv; // 0 = unknown
+    uint8_t power_flags; // bit0 = USB power present
 } info_payload_t;
 
 typedef struct __attribute__((packed)) {
@@ -176,6 +180,8 @@ static int info_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt
         .last_seq = li.last_seq,
         .count = li.count,
         .capacity = li.capacity,
+        .battery_mv = s_battery_mv,
+        .power_flags = battery_usb_present() ? 1 : 0,
     };
     return os_mbuf_append(ctxt->om, &p, sizeof(p)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
@@ -382,6 +388,8 @@ static void host_task(void *param)
 
 esp_err_t ble_sync_start(void)
 {
+    s_battery_mv = battery_read_mv();
+
     esp_err_t err = nvs_flash_init(); // PHY calibration data lives in NVS
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
