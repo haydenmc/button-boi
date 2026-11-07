@@ -1,0 +1,56 @@
+{
+  "name": "button-boi (PlatformIO)",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+
+  // Rootless Podman on Fedora: keep the host UID so bind-mounted files stay
+  // owned by you, keep host groups (dialout) for serial access, disable SELinux
+  // labelling so the workspace and /dev binds are usable, and bind /dev so USB
+  // serial ports are visible even after a board re-enumerates on reset.
+  "runArgs": [
+    "--userns=keep-id",
+    "--group-add=keep-groups",
+    "--security-opt=label=disable",
+    "--privileged"
+  ],
+  "mounts": [
+    "source=/dev,target=/dev,type=bind",
+    "source=button-boi-claude-config,target=/home/dev/.claude,type=volume",
+    "source=button-boi-platformio,target=/home/dev/.platformio,type=volume",
+    "source=button-boi-cache,target=/home/dev/.cache,type=volume"
+  ],
+
+  "containerUser": "dev",
+  "remoteUser": "dev",
+  "updateRemoteUserUID": false,
+
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/dev/.claude",
+    // Space-separated PlatformIO platforms to pre-install on container creation.
+    "PIO_PREINSTALL_PLATFORMS": "espressif32"
+  },
+  "remoteEnv": {
+    "PATH": "/home/dev/.local/bin:/home/dev/.platformio/penv/bin:${containerEnv:PATH}"
+  },
+
+  "postCreateCommand": {
+    // Native Claude Code installer (instead of the unmaintained devcontainer feature).
+    "claude": "curl -fsSL https://claude.ai/install.sh | bash",
+    "platformio": "install-platformio"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "platformio.platformio-ide"
+      ],
+      "settings": {
+        // Use the Core installed by install-platformio rather than letting the
+        // extension bootstrap its own copy.
+        "platformio-ide.useBuiltinPIOCore": true,
+        "platformio-ide.useBuiltinPython": false
+      }
+    }
+  }
+}
