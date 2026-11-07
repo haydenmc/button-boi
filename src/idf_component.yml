@@ -1,0 +1,5 @@
+dependencies:
+  idf: ">=6.0"
+  # Driver for the TinyS3's onboard WS2812 RGB LED (only used when
+  # CONFIG_BB_LED_WS2812 is selected).
+  espressif/led_strip: "^3.0.0"

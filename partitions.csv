@@ -1,0 +1,7 @@
+# Name,    Type, SubType, Offset,   Size,  Flags
+nvs,       data, nvs,     0x9000,   0x6000,
+phy_init,  data, phy,     0xf000,   0x1000,
+factory,   app,  factory, 0x10000,  0x200000,
+# Event log ring buffer: 64 KB = 16 x 4 KB sectors, ~3800 records retained.
+# Grow it freely (multiple of 0x1000); firmware adapts to the partition size.
+evlog,     data, 0x40,    0x210000, 0x10000,

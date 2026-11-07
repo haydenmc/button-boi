@@ -1,0 +1,126 @@
+menu "button-boi"
+
+    menu "Button"
+        config BB_BUTTON_GPIO
+            int "Button GPIO"
+            range 0 21
+            default 0
+            help
+                GPIO the button is connected to. Must be an RTC-capable GPIO
+                (0-21 on ESP32-S3) so it can wake the chip from deep sleep.
+                Default 0 is the TinyS3 BOOT button. GPIO0 is a strapping pin;
+                for a production build prefer a free RTC GPIO such as 1 or 2.
+
+        config BB_BUTTON_ACTIVE_LOW
+            bool "Button is active-low (pressed = 0)"
+            default y
+            help
+                Enable when the button shorts the GPIO to GND (with a pull-up).
+                Disable when it connects the GPIO to 3V3 (with a pull-down).
+
+        config BB_BUTTON_INTERNAL_PULL
+            bool "Use internal pull resistor (keeps RTC peripherals powered in sleep)"
+            default y
+            help
+                Enable the chip's internal pull-up (active-low) or pull-down
+                (active-high). In deep sleep this requires the RTC peripheral
+                power domain to stay on, which costs a few uA. Disable if an
+                external pull resistor is fitted.
+
+        config BB_LONG_PRESS_MS
+            int "Long-press duration to enter BLE sync mode (ms)"
+            range 500 10000
+            default 3000
+
+        config BB_DEBOUNCE_MS
+            int "Debounce time for presses while awake (ms)"
+            range 5 200
+            default 30
+    endmenu
+
+    menu "LED"
+        choice BB_LED_TYPE
+            prompt "Indicator LED type"
+            default BB_LED_WS2812
+
+            config BB_LED_NONE
+                bool "None"
+            config BB_LED_GPIO
+                bool "Plain LED on a GPIO"
+            config BB_LED_WS2812
+                bool "WS2812 addressable RGB LED (TinyS3 onboard)"
+        endchoice
+
+        config BB_LED_GPIO_NUM
+            int "LED GPIO"
+            depends on BB_LED_GPIO
+            range 0 48
+            default 21
+
+        config BB_LED_ACTIVE_HIGH
+            bool "LED is active-high"
+            depends on BB_LED_GPIO
+            default y
+
+        config BB_WS2812_GPIO
+            int "WS2812 data GPIO"
+            depends on BB_LED_WS2812
+            range 0 48
+            default 18
+
+        config BB_WS2812_PWR_GPIO
+            int "WS2812 power-enable GPIO (-1 = none)"
+            depends on BB_LED_WS2812
+            range -1 48
+            default 17
+            help
+                TinyS3 powers its RGB LED from a second LDO enabled by GPIO17.
+                It is switched off (and held off) during deep sleep.
+
+        config BB_WS2812_BRIGHTNESS
+            int "WS2812 brightness (1-255)"
+            depends on BB_LED_WS2812
+            range 1 255
+            default 40
+    endmenu
+
+    menu "BLE sync"
+        config BB_DEVICE_NAME
+            string "BLE device name prefix"
+            default "button-boi"
+            help
+                Advertised name; the last 2 bytes of the BT address are
+                appended, e.g. "button-boi-1A2B".
+
+        config BB_SYNC_WINDOW_S
+            int "Sync window: seconds to advertise after a long press"
+            range 10 600
+            default 60
+
+        config BB_SYNC_IDLE_AFTER_DISCONNECT_S
+            int "Seconds to keep advertising after a client disconnects"
+            range 0 120
+            default 5
+
+        config BB_SYNC_MAX_S
+            int "Hard cap on total sync-mode time (s)"
+            range 30 3600
+            default 600
+    endmenu
+
+    config BB_STUCK_BUTTON_RETRY_S
+        int "If the button is held at sleep time, re-check after N seconds"
+        range 5 3600
+        default 30
+        help
+            The button wake is level-triggered, so a stuck/held button would
+            wake the chip continuously. Instead the device sleeps on a timer
+            until the button is released.
+
+    config BB_DEBUG_NO_SLEEP
+        bool "Debug: never deep sleep (keeps USB serial console attached)"
+        default n
+        help
+            Instead of deep sleeping, the device idles awake and polls the
+            button, behaving otherwise the same. Uses far more power.
+endmenu

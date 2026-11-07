@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>button-boi sync</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --fg: #1d1d1b; --muted: #6b6b66; --card: #fff; --line: #e2e2dc;
+    --accent: #2457d6; --accent-fg: #fff; --warn: #b3261e; --ok: #1e7a3c;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --fg: #ececea; --muted: #9a9a94; --card: #1f1f1d; --line: #33332f;
+      --accent: #7aa2ff; --accent-fg: #0d1a3a; --warn: #ff8a80; --ok: #7bd99a;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button.danger { color: var(--warn); border-color: var(--warn); }
+  button:disabled { opacity: .45; cursor: default; }
+  label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  #status { color: var(--muted); }
+  #status.err { color: var(--warn); }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  .tag { font-size: 12px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); }
+  .est { color: var(--muted); }
+  .none { color: var(--warn); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>button-boi sync</h1>
+  <p class="sub">Hold the device's button for 3 s until the LED blinks blue, then connect.
+     Needs Chrome or Edge (desktop / Android), or Bluefy on iOS.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="connect" class="primary">Connect</button>
+      <button id="dump" disabled>Download log</button>
+      <label><input type="checkbox" id="onlyNew"> only new since last download</label>
+      <button id="disconnect" disabled>Disconnect</button>
+    </div>
+    <p id="status">Not connected.</p>
+    <dl id="info" hidden></dl>
+  </div>
+
+  <div class="card" id="results" hidden>
+    <div class="row" style="justify-content: space-between; margin-bottom: 8px">
+      <strong id="summary"></strong>
+      <div class="row">
+        <label><input type="checkbox" id="showAll"> show boot / sync records</label>
+        <button id="csv">Save CSV</button>
+      </div>
+    </div>
+    <div class="table-wrap"><table id="table"></table></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="erase" class="danger" disabled>Erase device log…</button>
+      <span id="eraseConfirm" hidden>
+        This permanently deletes every record on the device.
+        <button id="eraseYes" class="danger">Yes, erase</button>
+        <button id="eraseNo">Cancel</button>
+      </span>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+const uuid = (n) => `6b1f${n}-3c5e-4a7d-9b2e-8f1c0d2a7e51`;
+const SVC = uuid("0001"), INFO = uuid("0002"), TIME = uuid("0003"), CTRL = uuid("0004"), DATA = uuid("0005");
+const TYPES = { 1: "boot", 2: "press", 3: "time sync", 4: "erase" };
+const FLAG_TIME_VALID = 0x80;
+const RECORD_SIZE = 16;
+
+const $ = (id) => document.getElementById(id);
+let device, chars = {}, records = [], dumpState = null;
+
+function status(msg, err = false) {
+  $("status").textContent = msg;
+  $("status").className = err ? "err" : "";
+}
+
+function storeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function storeSet(k, v) { try { localStorage.setItem(k, v); } catch { /* ignore */ } }
+
+function setConnected(on) {
+  $("connect").disabled = on;
+  $("dump").disabled = !on;
+  $("disconnect").disabled = !on;
+  $("erase").disabled = !on;
+  if (!on) $("eraseConfirm").hidden = true;
+}
+
+async function connect() {
+  if (!window.isSecureContext) {
+    status(`Web Bluetooth needs a secure context, and ${location.origin} isn't one. ` +
+           "Open the page via http://localhost:<port> or an https:// URL (not file:// or a LAN IP).", true);
+    return;
+  }
+  if (!navigator.bluetooth) {
+    const linux = /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+    status(linux && /Chrom/.test(navigator.userAgent)
+      ? "Web Bluetooth is off. On Linux, enable chrome://flags/#enable-experimental-web-platform-features and relaunch."
+      : "This browser has no Web Bluetooth. Use Chrome/Edge on desktop or Android, or Bluefy on iOS (Firefox and Safari don't support it).", true);
+    return;
+  }
+  try {
+    if (navigator.bluetooth.getAvailability && !(await navigator.bluetooth.getAvailability())) {
+      status("Web Bluetooth is available but no Bluetooth adapter was found. Check the adapter is on (bluetoothctl show).", true);
+      return;
+    }
+  } catch { /* getAvailability is optional; carry on */ }
+  try {
+    device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }] });
+    device.addEventListener("gattserverdisconnected", () => { setConnected(false); status("Disconnected."); });
+    status(`Connecting to ${device.name || "device"}…`);
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(SVC);
+    for (const [k, u] of Object.entries({ INFO, TIME, CTRL, DATA })) chars[k] = await svc.getCharacteristic(u);
+    await chars.DATA.startNotifications();
+    chars.DATA.addEventListener("characteristicvaluechanged", onData);
+
+    // Set the device clock from this computer.
+    const buf = new DataView(new ArrayBuffer(8));
+    buf.setBigUint64(0, BigInt(Date.now()), true);
+    await chars.TIME.writeValueWithResponse(buf);
+
+    setConnected(true);
+    await refreshInfo();
+    status(`Connected to ${device.name}. Clock set.`);
+  } catch (e) {
+    status(`Connect failed: ${e.message}`, true);
+    setConnected(false);
+  }
+}
+
+let info = null;
+async function refreshInfo() {
+  const v = await chars.INFO.readValue();
+  info = {
+    proto: v.getUint8(0), timeValid: !!(v.getUint8(1) & 1), session: v.getUint16(2, true),
+    deviceTime: Number(v.getBigUint64(4, true)), firstSeq: v.getUint32(12, true),
+    lastSeq: v.getUint32(16, true), count: v.getUint32(20, true), capacity: v.getUint32(24, true),
+  };
+  const dl = $("info");
+  dl.replaceChildren();
+  const add = (k, val) => { const dt = document.createElement("dt"); dt.textContent = k;
+    const dd = document.createElement("dd"); dd.textContent = val; dl.append(dt, dd); };
+  add("Device", device.name);
+  add("Device clock", info.timeValid ? new Date(info.deviceTime).toLocaleString() : "not set");
+  add("Session", info.session);
+  add("Records", `${info.count} of ${info.capacity} (seq ${info.firstSeq || "–"}…${info.lastSeq || "–"})`);
+  dl.hidden = false;
+}
+
+function dump() {
+  const key = `bb-last-seq-${device.id}`;
+  const from = $("onlyNew").checked ? Number(storeGet(key) || 0) + 1 : 0;
+  return new Promise(async (resolve) => {
+    dumpState = { chunks: [], resolve, key };
+    status("Downloading…");
+    $("dump").disabled = true;
+    const cmd = new DataView(new ArrayBuffer(5));
+    cmd.setUint8(0, 0x01);
+    cmd.setUint32(1, from, true);
+    try { await chars.CTRL.writeValueWithResponse(cmd); }
+    catch (e) { status(`Download failed: ${e.message}`, true); dumpState = null; $("dump").disabled = false; resolve(); }
+  });
+}
+
+function onData(ev) {
+  const v = ev.target.value;
+  if (!dumpState) return;
+  if (v.byteLength === 5 && v.getUint8(0) === 0xff) {
+    const sent = v.getUint32(1, true);
+    const raw = dumpState.chunks;
+    const recs = [];
+    for (const c of raw) for (let o = 0; o + RECORD_SIZE <= c.byteLength; o += RECORD_SIZE) recs.push(decode(c, o));
+    if (recs.length !== sent) status(`Warning: expected ${sent} records, got ${recs.length}.`, true);
+    else status(`Downloaded ${recs.length} records.`);
+    if (recs.length) storeSet(dumpState.key, String(recs[recs.length - 1].seq));
+    records = resolveTimes(recs);
+    render();
+    $("dump").disabled = false;
+    dumpState.resolve();
+    dumpState = null;
+    return;
+  }
+  dumpState.chunks.push(new DataView(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength)));
+  status(`Downloading… ${dumpState.chunks.reduce((n, c) => n + c.byteLength / RECORD_SIZE, 0)} records`);
+}
+
+function decode(v, o) {
+  const tf = v.getUint8(o + 14);
+  return { seq: v.getUint32(o, true), t: v.getUint32(o + 4, true), aux: v.getUint32(o + 8, true),
+           session: v.getUint16(o + 12, true), type: tf & 0x0f, valid: !!(tf & FLAG_TIME_VALID) };
+}
+
+// Turn device timestamps into wall-clock ms.
+//  * Records made before the clock was set in a session hold seconds-since-
+//    power-on; a later TIME_SYNC in the same session gives the offset.
+//  * Between two syncs, the RTC drift measured at the second sync is spread
+//    linearly over the interval.
+function resolveTimes(recs) {
+  const ms = (r) => r.t * 1000 + (r.type === 2 ? r.aux : 0);
+  const bySession = new Map();
+  for (const r of recs) { if (!bySession.has(r.session)) bySession.set(r.session, []); bySession.get(r.session).push(r); }
+  for (const list of bySession.values()) {
+    const syncs = list.filter((r) => r.type === 3);
+    for (const r of list) {
+      r.when = null; r.how = "none";
+      if (r.type === 3) { r.when = r.t * 1000; r.how = "sync"; continue; }
+      if (!r.valid) {
+        // First sync after this record whose "before" clock was also unset.
+        const s = syncs.find((s) => s.seq > r.seq && !s.valid);
+        if (s) { r.when = ms(r) + (s.t - s.aux) * 1000; r.how = "estimated"; }
+        continue;
+      }
+      r.when = ms(r); r.how = "exact";
+      // Drift correction: previous sync A, next sync B (B's aux = device's view).
+      const a = [...syncs].reverse().find((s) => s.seq < r.seq);
+      const b = syncs.find((s) => s.seq > r.seq && s.valid);
+      if (a && b && b.aux > a.t) {
+        const err = (b.t - b.aux) * 1000;
+        const frac = (r.t - a.t) / (b.aux - a.t);
+        if (Math.abs(err) > 1000) { r.when += err * Math.min(Math.max(frac, 0), 1); r.how = "drift-corrected"; }
+      }
+    }
+  }
+  return recs;
+}
+
+function visible() {
+  return $("showAll").checked ? records : records.filter((r) => r.type === 2);
+}
+
+function fmt(r) {
+  if (r.when == null) return `+${r.t}s after power-on (time unknown)`;
+  return new Date(r.when).toLocaleString();
+}
+
+function render() {
+  const rows = visible();
+  const t = $("table");
+  t.replaceChildren();
+  const head = t.createTHead().insertRow();
+  for (const h of ["#", "Type", "Time", "Session", "Accuracy"]) { const th = document.createElement("th"); th.textContent = h; head.append(th); }
+  const body = t.createTBody();
+  for (const r of rows.slice().reverse()) {
+    const tr = body.insertRow();
+    tr.insertCell().textContent = r.seq;
+    tr.insertCell().textContent = TYPES[r.type] || `type ${r.type}`;
+    const c = tr.insertCell(); c.textContent = fmt(r);
+    if (r.how === "none") c.className = "none"; else if (r.how !== "exact") c.className = "est";
+    tr.insertCell().textContent = r.session;
+    tr.insertCell().textContent = r.how;
+  }
+  const presses = records.filter((r) => r.type === 2).length;
+  $("summary").textContent = `${presses} press${presses === 1 ? "" : "es"}`;
+  $("results").hidden = false;
+}
+
+// Downloads triggered by script are blocked inside some sandboxes; this page
+// is meant to be opened directly from localhost or an HTTPS host.
+function saveCsv() {
+  const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
+  const lines = [["seq", "type", "iso_time", "local_time", "accuracy", "session", "raw_t", "raw_aux"].join(",")];
+  for (const r of visible()) {
+    lines.push([r.seq, TYPES[r.type] || r.type, r.when == null ? "" : new Date(r.when).toISOString(),
+      esc(r.when == null ? "" : new Date(r.when).toLocaleString()), r.how, r.session, r.t, r.aux].join(","));
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv" }));
+  a.download = `button-boi-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function erase() {
+  $("eraseConfirm").hidden = true;
+  const cmd = new Uint8Array([0x02, ..."WIPE"].map((c) => (typeof c === "string" ? c.charCodeAt(0) : c)));
+  try {
+    await chars.CTRL.writeValueWithResponse(cmd);
+    storeSet(`bb-last-seq-${device.id}`, "0");
+    await refreshInfo();
+    status("Device log erased.");
+  } catch (e) { status(`Erase failed: ${e.message}`, true); }
+}
+
+$("connect").onclick = connect;
+$("dump").onclick = async () => { await dump(); await refreshInfo().catch(() => {}); };
+$("disconnect").onclick = () => device?.gatt.disconnect();
+$("showAll").onchange = render;
+$("csv").onclick = saveCsv;
+$("erase").onclick = () => { $("eraseConfirm").hidden = false; };
+$("eraseNo").onclick = () => { $("eraseConfirm").hidden = true; };
+$("eraseYes").onclick = erase;
+</script>
+</body>
+</html>
