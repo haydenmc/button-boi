@@ -22,8 +22,9 @@ PlatformIO (`espressif32@8.0.0`).
 
 ### Downloading the log
 
-1. Serve the page: `cd web && python3 -m http.server 8000`, then open
-   <http://localhost:8000> in **Chrome or Edge** (desktop or Android). Web
+1. Open <https://haydenmc.github.io/button-boi/>, or serve the page locally
+   with `cd web && python3 -m http.server 8000` and open
+   <http://localhost:8000>. Use **Chrome or Edge** (desktop or Android). Web
    Bluetooth needs a secure context; `localhost` qualifies, and so does any
    HTTPS host such as GitHub Pages. On iOS, use the Bluefy browser. Firefox
    and Safari don't support Web Bluetooth.
