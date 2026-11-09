@@ -10,3 +10,6 @@
 
 # ESP-IDF component manager
 managed_components/
+
+# Freecad Backup Files
+*.FCBak
